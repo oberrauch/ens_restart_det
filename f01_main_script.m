@@ -10,7 +10,7 @@
 clear;
 close all;
 
-run_sim = true;
+run_sim = false;
 run_loo = true;
 run_oloo = true;
 
@@ -35,6 +35,10 @@ pert_suffix = 'ALIGN_DET_4K_BIG_ENS';
 main_dir = ['D:\MODEL_OUTPUT\HS_ASSIMILATION\PF_', suffix];
 % create directory
 create_folder(main_dir);
+
+% "longtime storage" folder where to copy result files
+storage_folder = 'E:\PF_PAPER';
+create_folder(storage_folder);
 
 % define common settings for all subscripts
 common_settings = struct();
@@ -64,7 +68,7 @@ create_folder(meteo_perturb_out_dir);
 
 % re-initialization settings
 common_settings.init_type = 'reinitialize';
-common_settings.overrite_states = true;
+common_settings.override_terrain_params = true;
 common_settings.states_folder_reinit = fullfile(main_dir, prcp_input_text, 'rerun', 'OUTPUT_STAT');
 common_settings.pfaux_folder_reinit = fullfile(main_dir, prcp_input_text, 'PF_res', 'OUTPUT_STAT');
 
@@ -108,13 +112,13 @@ pf_settings.pf.rs_noise = false; % don't resample noise parameters
 pf_settings.pf.shuffle_noise = true; % shuffle noise parameters
 
 
-seasons = [2018, 2019, 2020, 2021, 2022];
+seasons = [2019, 2020];
 n_seasons = length(seasons);
 
-for i_season = 1:n_seasons
+for i_season = 2:n_seasons
   % run for 2021/2022 season
   curr_year = seasons(i_season);
-  time_start = datenum(curr_year, 10, 01);
+  time_start = datenum(curr_year, 09, 01);
   time_end = datenum(curr_year+1, 06, 30);
   % use local copy of MetDataWizard session for speedup
   season_start_month = 9; % September is start of the season
@@ -126,6 +130,14 @@ for i_season = 1:n_seasons
     common_settings.mdw_session = 'D:\INPUT_DATA\DATA_MDW\OSHD_EKF_2023_MAPS_CURR.MDW';
   end
 
+  %% Deterministic run
+  % copy to PF settings
+  pf_settings.time_start = time_start;
+  pf_settings.time_end = time_end;
+
+  % run PF simulation
+  f02_start_script(main_dir, pf_settings, run_det = true, run_pf = false);
+
   %% Simulations and computation of perturbations
 
   % iterate over all assimilation periods
@@ -134,7 +146,7 @@ for i_season = 1:n_seasons
   n_assim_periods = length(assim_dates);
 
   % settings for first iteration
-  start_date_idx = 74;
+  start_date_idx = 1;
   if start_date_idx > 1
     common_settings.time_start = assim_dates(start_date_idx-1);
   else
@@ -184,7 +196,6 @@ for i_season = 1:n_seasons
 
     end
 
-    %%
     disp('PF/Rerun simulations DONE!')
 
   end
@@ -195,17 +206,17 @@ for i_season = 1:n_seasons
     common_settings.time_start = time_start;
     common_settings.time_end = time_end;
 
-    % loo
+    % LOO 3D Gauss
     common_settings.interp_loo = true;
     common_settings.interp_method = '3dgauss';
     common_settings.interp_fill_nan_kriging = false;
     f04_start_leave_one_out(main_dir, common_settings, meteo_perturb_out_dir);
 
-    %   % loo 3DGauss, fill with Kriging
-    %   common_settings.interp_fill_nan_kriging = true;
-    %   f04_start_leave_one_out(main_dir, common_settings, meteo_perturb_out_dir);
+    % % LOO 3D Gauss + fill with Kriging
+    % common_settings.interp_fill_nan_kriging = true;
+    % f04_start_leave_one_out(main_dir, common_settings, meteo_perturb_out_dir);
 
-    % loo Krigin
+    % % LOO Kriging
     % common_settings.interp_method = 'kriging';
     % % common_settings.time_start = datenum('18-Jun-2022');
     % % common_settings.init_type = 'reinitialize';
@@ -216,7 +227,7 @@ for i_season = 1:n_seasons
   %% O-LOO Exps
   if run_oloo
 
-    % oloo
+    % OLOO 3DGauss
     common_settings.time_start = time_start;
     common_settings.time_end = time_end;
     common_settings.interp_loo = false;
@@ -224,8 +235,15 @@ for i_season = 1:n_seasons
     common_settings.interp_fill_nan_kriging = false;
     f04_start_leave_one_out(main_dir, common_settings, meteo_perturb_out_dir);
 
-    %   common_settings.interp_fill_nan_kriging = true;
-    %   f04_start_leave_one_out(main_dir, common_settings, meteo_perturb_out_dir);
+    % OLOO 3D Gauss + fill with Kriging
+    % common_settings.interp_fill_nan_kriging = true;
+    % f04_start_leave_one_out(main_dir, common_settings, meteo_perturb_out_dir);
+  end
+
+  % move files to E:\
+  status = movefile(fullfile(main_dir, "COSMO"), fullfile(storage_folder, "COSMO", [num2str(year(time_start)), '_', num2str(year(time_end))]));
+  if status ~= 1
+    error('Error copying output to E:\');
   end
 
 end
